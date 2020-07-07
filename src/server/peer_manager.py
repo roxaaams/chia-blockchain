@@ -43,6 +43,20 @@ class ExtendedPeerInfo:
         self.last_update_time = 0
         self.nLastCountAttempt = 0
 
+    def to_string(self):
+        return self.peer_info.host
+        + " " + int(self.peer_info.port) 
+        + " " self.src.host 
+        + " " + int(self.src.port)
+
+    @classmethod
+    def from_string(cls, peer_str):
+        blobs = peer_str.split(" ")
+        assert len(blobs) == 4
+        peer_info = PeerInfo(blobs[0], int(blobs[1]))
+        src_peer = PeerInfo(blobs[2], int(blobs[3])) 
+        return cls(peer_info, src_peer)
+
     def get_tried_bucket(self, nKey):
         hash1 = int.from_bytes(
             bytes(
@@ -551,3 +565,114 @@ class AddressManager:
     async def mark_connected(self, addr):
         async with self.lock:
             return self.mark_connected_(addr)
+
+    # Serialized format:
+    # * nKey
+    # * new_count
+    # * tried_count
+    # * number of "new" buckets
+    # * all new_count addrinfos in new_matrix
+    # * all tried_count addrinfos in tried_matrix
+    # * for each bucket:
+    # * * number of elements
+    # * * for each element: index
+    
+    # Notice that tried_matrix, map_addr and vVector are never encoded explicitly;
+    # they are instead reconstructed from the other information.
+    #
+    # new_matrix is serialized, but only used if ADDRMAN_UNKNOWN_BUCKET_COUNT didn't change,
+    # otherwise it is reconstructed as well.
+    #
+    # This format is more complex, but significantly smaller (at most 1.5 MiB), and supports
+    # changes to the ADDRMAN_ parameters without breaking the on-disk structure.
+
+    async def serialize(self, filename):
+        async with self.lock:
+            with open(filename, 'w') as writer:
+                writer.write(str(self.nKey) + "\n")
+                writer.write(str(self.new_count) + "\n")
+                writer.write(str(self.tried_count) + "\n")
+                writer.write(str(NEW_BUCKET_COUNT) + "\n")
+                unique_ids = {}
+                count_ids = 0
+
+                for node_id, info in self.map_info.items():
+                    unique_ids[node_id] = count_ids
+                    if info.ref_count > 0:
+                        assert count_ids != self.new_count
+                        writer.write(info.to_string() + "\n")
+                        count_ids += 1
+
+                count_ids = 0
+                for node_id, info in self.map_info.items():
+                    if info.is_tried:
+                        assert count_ids != self.tried_count
+                        writer.write(info.to_string() + "\n")
+                        count_ids += 1
+
+                for bucket in range(NEW_BUCKET_COUNT):
+                    bucket_size = 0
+                    for i in range(BUCKET_SIZE):
+                        if self.new_matrix[bucket][i] != -1:
+                            bucket_size += 1
+                    writer.write(str(bucket_size) + "\n")
+                    for i in range(BUCKET_SIZE):
+                        if self.new_matrix[bucket][i] != -1:
+                            index = unique_ids[self.new_matrix[bucket][i]]
+                            writer.write(str(index) + "\n")
+
+    async def unserialize(self, filename):
+        await self.clear()
+        async with self.lock:
+            with open(filename, 'r') as reader:
+                self.nKey = int(reader.readline())
+                self.new_count = int(reader.readline())
+                self.tried_count = int(reader.readline())
+                buckets = int(reader.readline())
+                assert buckets == NEW_BUCKET_COUNT
+                assert self.new_count <= NEW_BUCKET_COUNT * BUCKET_SIZE
+                assert self.tried_count <= TRIED_BUCKET_COUNT * BUCKET_SIZE
+                for n in range(self.new_count):
+                    info = ExtendedPeerInfo.from_string(reader.readline())
+                    self.map_addr[info.peer_info.host] = n
+                    self.map_info[n] = info
+                    info.random_pos = len(self.random_pos)
+                    self.random_pos.append(n)
+                lost_count = 0
+                id_count = self.new_count
+
+                for n in range(self.tried_count):
+                    info = ExtendedPeerInfo.from_src(reader.readline())
+                    tried_bucket = info.get_tried_bucket(self.nKey)
+                    tried_bucket_pos = info.get_bucket_position(self.nKey, False, tried_bucket)
+                    if self.tried_matrix[tried_bucket][tried_bucket_pos] == -1:
+                        info.random_pos = len(self.random_pos)
+                        info.is_tried = True
+                        self.random_pos.append(id_count)
+                        self.map_info[id_count] = info
+                        self.map_addr[info.peer_info.host] = id_count
+                        self.tried_matrix[tried_bucket][tried_bucket_pos] = id_count
+                        id_count += 1
+                    else:
+                        lost_count += 1
+                self.tried_count -= lost_count
+
+                for bucket in range(NEW_BUCKET_COUNT):
+                    bucket_size = int(reader.readline())
+                    for n in range(bucket_size):
+                        index = int(reader.readline())
+                        if (index >= 0 and index < self.new_count):
+                            info = self.map_info[index]
+                            bucket_pos = info.get_bucket_position(self.nKey, True, bucket)
+                            if (
+                                self.new_matrix[bucket][bucket_pos] == -1
+                                and info.ref_count < NEW_BUCKETS_PER_ADDRESS
+                            ):
+                                info.ref_count += 1
+                                self.new_matrix[bucket][bucket_pos] = index
+                for node_id, info in self.map_info:
+                    if (
+                        info.is_tried == False
+                        and info.ref_count == 0
+                    ):
+                        self.delete_new_entry_(node_id)

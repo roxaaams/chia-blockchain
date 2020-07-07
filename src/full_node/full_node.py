@@ -261,6 +261,12 @@ class FullNode:
         async for msg in self._send_tips_to_farmers(Delivery.RESPOND):
             yield msg
 
+        yield OutboundMessage(
+            NodeType.FULL_NODE,
+            Message("request_peers", introducer_protocol.RequestPeers()),
+            Delivery.RESPOND,
+        )
+
     def _num_needed_peers(self) -> int:
         assert self.global_connections is not None
         diff = self.config["target_peer_count"] - len(
@@ -1633,35 +1639,6 @@ class FullNode:
             yield OutboundMessage(NodeType.FULL_NODE, Message("", None), Delivery.CLOSE)
         for _ in []:
             yield _
-
-    @api_request
-    async def request_peers(
-        self, request: introducer_protocol.RequestPeers
-    ) -> OutboundMessageGenerator:
-        if self.global_connections is None:
-            return
-        peers = self.global_connections.get_peers()
-
-        yield OutboundMessage(
-            NodeType.FULL_NODE,
-            Message("respond_peers", introducer_protocol.RespondPeers(peers)),
-            Delivery.RESPOND,
-        )
-
-    @api_request
-    async def respond_peers(
-        self, request: introducer_protocol.RespondPeers
-    ) -> OutboundMessageGenerator:
-        if self.server is None or self.global_connections is None:
-            return
-        conns = self.global_connections
-        for peer in request.peer_list:
-            #TODO: Get peer_src correctly.
-            peer_src = peer
-            await conns.add_potential_peer(peer, peer_src)
-        
-        # Pseudo-message to close the connection
-        yield OutboundMessage(NodeType.INTRODUCER, Message("", None), Delivery.CLOSE)
 
     @api_request
     async def request_mempool_transactions(

@@ -222,6 +222,11 @@ async def perform_handshake(
             )
         )
         # Only yield a connection if the handshake is succesful and the connection is not a duplicate.
+        if connection.connection_type == NodeType.FULL_NODE:
+            if connection.is_feeler:
+                connection.close()
+                global_connections.close(connection)
+                await global_connections.mark_good(connection.get_peer_info())                
         yield connection, global_connections
     except (ProtocolError, asyncio.IncompleteReadError, OSError, Exception,) as e:
         connection.log.warning(f"{e}, handshake not completed. Connection not created.")
@@ -229,12 +234,6 @@ async def perform_handshake(
         connection.close()
         # Remove the conenction from global connections
         global_connections.close(connection)
-
-    if connection.connection_type == NodeType.FULL_NODE:
-        if connection.is_feeler:
-            connection.close()
-            global_connections.close(connection)
-        await global_connections.mark_good(connection.get_peer_info())
 
 async def connection_to_message(
     pair: Tuple[Connection, PeerConnections],
@@ -311,6 +310,25 @@ async def handle_message(
             yield connection, outbound_message, global_connections
             return
         elif full_message.function == "pong":
+            return
+
+        if full_message.function == "request_peers":
+            if global_connections is None:
+                return
+            peers = await global_connections.get_peers()
+            outbound_message = OutboundMessage(
+                NodeType.FULL_NODE,
+                Message("respond_peers", introducer_protocol.RespondPeers(peers)),
+                Delivery.RESPOND,
+            )
+            yield connection, outbound_message, global_connections
+            return
+        elif full_message.function == "respond_peers":
+            peer_src = connection.get_peername()
+            peers = full_message.data["peer_list"]
+            for peer in peers:
+                await global_connections.add_potential_peer(peer, peer_src)
+            # yield OutboundMessage(NodeType.INTRODUCER, Message("", None), Delivery.CLOSE)
             return
 
         f_with_peer_name = getattr(api, full_message.function + "_with_peer_name", None)
