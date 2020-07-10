@@ -1,17 +1,26 @@
 from dataclasses import dataclass
 
-from src.util.ints import uint16
+from src.util.ints import uint16, uint64
 from src.util.streamable import Streamable, streamable
 
 import ipaddress
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False, eq=False)
 @streamable
 class PeerInfo(Streamable):
     # TODO: Change `host` type to bytes16
     host: str
     port: uint16
+    timestamp = uint64
+
+    def __init__(self, host, port, timstamp = 0):
+        self.host = host
+        self.port = port
+        self.timestamp = timestamp
+    
+    def __eq__(self, other):
+        return (self.host == other.host and self.port == other.port)
 
     def get_key(self):
         try:
@@ -45,6 +54,3 @@ class PeerInfo(Streamable):
             ipv4 = 0
         group = bytes([ipv4]) + ip.packed[:2]
         return group
-    
-    def __eq__(self, other):
-        return (self.host == other.host and self.port == other.port)

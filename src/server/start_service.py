@@ -66,6 +66,7 @@ def create_periodic_introducer_poll_task(
     
     async def connect_to_peers():
         next_feeler = poisson_next_send(time.time()*1000*1000, 120)
+
         while True:
             # We don't know any address, connect to the introducer to get some.
             if global_connections.size() == 0:
@@ -106,7 +107,7 @@ def create_periodic_introducer_poll_task(
             now = time.time()
             addr = None
             while True:
-                addr = address_manager.select_tried_collision()
+                addr = await address_manager.select_tried_collision()
                 if (
                     not is_feeler
                     or addr is None

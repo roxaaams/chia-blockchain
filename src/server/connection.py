@@ -11,6 +11,9 @@ from src.util import cbor
 from src.util.ints import uint16, uint64
 from src.server.peer_manager import AddressManager
 
+from src.util.config import load_config_cli
+from src.util.default_root import DEFAULT_ROOT_PATH
+
 # Each message is prepended with LENGTH_BYTES bytes specifying the length
 LENGTH_BYTES: int = 4
 log = logging.getLogger(__name__)
@@ -59,6 +62,10 @@ class Connection:
         self.bytes_written = 0
         self.last_message_time: float = 0
         self._cached_peer_name = self.writer.get_extra_info("peername")
+
+        # Get max inbound connection count from full node config.
+        config = load_config_cli("full_node", "config.yaml", DEFAULT_ROOT_PATH)
+        self.max_inbound_count = config["target_peer_count"] - config["target_outbound_peer_count"]
 
     def get_peername(self):
         return self._cached_peer_name
@@ -148,16 +155,40 @@ class PeerConnections:
                 and conn.connection_type == NodeType.FULL_NODE
             ]
         )
-    
-    async def add_potential_peer(self, peer: Optional[PeerInfo], peer_source: Optional[PeerInfo]):
+
+    def accept_inbound_connections(self):
+        inbound_count = len(
+            [
+                conn
+                for conn in self._all_connections
+                if not conn.is_outbound
+                and conn.connection_type == NodeType.FULL_NODE
+            ]
+        )
+        return inbound_count < self.max_inbound_count
+
+    async def add_potential_peer(self, peer: Optional[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
         if peer is None or not peer.port:
             return False
-        await self.address_manager.add_to_new_table(peer, peer_source)
+        await self.address_manager.add_to_new_table([peer], peer_source, penalty)
+
+    async def add_potential_peers(self, peers: Optional[List[PeerInfo]], peer_source: Optional[PeerInfo], penalty=0):
+        await self.address_manager.add_to_new_table(peers, peer_source, penalty)
     
     async def get_peers(self):
         peers = await self.address_manager.get_peers()
         return peers
     
+    async def mark_attempted(self, peer_info):
+        if peer_info is None or not peer_info.port:
+            return
+        await self.address_manager.attempt(peer_info, True)
+    
+    async def update_connection_time(self, peer_info):
+        if peer_info is None or not peer_info.port:
+            return
+        await self.address_manager.connect(peer_info)
+
     async def mark_good(self, peer_info):
         if peer_info is None or not peer_info.port:
             return

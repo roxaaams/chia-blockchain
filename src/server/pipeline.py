@@ -171,6 +171,13 @@ async def perform_handshake(
     and nothing is yielded.
     """
     connection, global_connections = pair
+    if (
+        not connection.is_outbound
+        and connection.connection_type == NodeType.FULL_NODE:
+    ):
+        if not global_connections.accept_inbound_connections():
+            connection.close()
+            raise ProtocolError(Err.MAX_INBOUND_CONNECTIONS_REACHED)
 
     # Send handshake message
     try:
@@ -223,12 +230,18 @@ async def perform_handshake(
         )
         # Only yield a connection if the handshake is succesful and the connection is not a duplicate.
         if connection.connection_type == NodeType.FULL_NODE:
-            if connection.is_feeler:
-                connection.close()
-                global_connections.close(connection)
-                await global_connections.mark_good(connection.get_peer_info())                
+            if connection.is_outbound:
+                await global_connections.mark_good(connection.get_peer_info())
+                await global_connections.update_connection_time(
+                    connection.get_peer_info()
+                )
+                if connection.is_feeler:
+                    connection.close()
+                    global_connections.close(connection)                    
         yield connection, global_connections
     except (ProtocolError, asyncio.IncompleteReadError, OSError, Exception,) as e:
+        if connection.connection_type == NodeType.FULL_NODE:
+            await global_connection.mark_attempted(connection.get_peer_info())
         connection.log.warning(f"{e}, handshake not completed. Connection not created.")
         # Make sure to close the connection even if it's not in global connections
         connection.close()
@@ -310,25 +323,38 @@ async def handle_message(
             yield connection, outbound_message, global_connections
             return
         elif full_message.function == "pong":
+            # TODO: maybe update time after every each message.
+            await global_connections.update_connection_time(
+                connection.get_peer_info()
+            )
             return
 
         if full_message.function == "request_peers":
             if global_connections is None:
                 return
+            # Prevent a fingerprint attack.
+            if not connection.is_outbound:
+                return
             peers = await global_connections.get_peers()
             outbound_message = OutboundMessage(
                 NodeType.FULL_NODE,
-                Message("respond_peers", introducer_protocol.RespondPeers(peers)),
+                Message("respond_peers", full_node_protocol.RespondPeers(peers)),
                 Delivery.RESPOND,
             )
             yield connection, outbound_message, global_connections
             return
         elif full_message.function == "respond_peers":
+            if global_connections is None:
+                return
             peer_src = connection.get_peername()
             peers = full_message.data["peer_list"]
             for peer in peers:
-                await global_connections.add_potential_peer(peer, peer_src)
-            # yield OutboundMessage(NodeType.INTRODUCER, Message("", None), Delivery.CLOSE)
+                if (
+                    peer.timestamp < 100000000
+                    or peer.timestamp > time.time() + 10 * 60
+                ):
+                    peer.timestamp = time.time() - 5 * 24 * 60 * 60
+                await global_connections.add_potential_peer(peer, peer_src, 2 * 60 * 60)
             return
 
         f_with_peer_name = getattr(api, full_message.function + "_with_peer_name", None)

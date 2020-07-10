@@ -38,9 +38,8 @@ class ExtendedPeerInfo:
         self.ref_count = 0
         self.nLastSuccess = 0
         self.nLastTry = 0
-        self.nTime = 0
+        self.nTime = peer_info.timestamp
         self.nAttempts = 0
-        self.last_update_time = 0
         self.nLastCountAttempt = 0
 
     def to_string(self):
@@ -324,10 +323,26 @@ class AddressManager:
             nTimePenalty = 0
 
         if info is not None:
-            # TODO: handle this exactly like Bitcoin does.
-            currently_online = (time.time() - info.nTime < 24 * 60 * 60)
+            # periodically update timestamp
+            currently_online = (time.time() - addr.nTime < 24 * 60 * 60)
             update_interval = 60 * 60 if currently_online else 24 * 60 * 60
-            if time.time() - info.last_update_time < update_interval:
+            if (
+                addr.timestamp > 0
+                and (
+                    info.nTime > 0
+                    or info.nTime < addr.timestamp - update_interval - nTimePenalty
+                )
+            ):
+                info.nTime = max(0, addr.timestamp - nTimePenalty)
+
+            # do not update if no new information is present
+            if (
+                addr.timestamp == 0
+                or (
+                    info.nTime > 0
+                    and addr.timestamp <= info.nTime
+                )
+            ):
                 return False
 
             # do not update if the entry was already in the "tried" table
@@ -368,7 +383,6 @@ class AddressManager:
             else:
                 if info.ref_count == 0:
                     self.delete_new_entry_(node_id)
-        info.last_update_time = time.time()
         return is_unique
 
     def attempt_(self, addr, count_failures, nTime):
@@ -484,7 +498,12 @@ class AddressManager:
             self.swap_random_(n, nRndPos)
             info = self.map_info[self.random_pos[n]]
             if not info.is_terrible():
-                addr.append(info)
+                cur_peer_info = info.peer_info
+                cur_peer_info.timestamp = max(
+                    cur_peer_info.timestamp,
+                    info.nTime
+                )
+                addr.append(cur_peer_info)
 
         return addr
 
@@ -504,23 +523,6 @@ class AddressManager:
         if nTime - info.nTime > update_interval:
             info.nTime = nTime
 
-    async def mark_connected_(self, addr):
-        info, _ = self.find_(addr)
-        if info is None:
-            return
-
-        # check whether we are talking about the exact same CService (including same port)
-        if not (
-            info.peer_info.host == addr.host
-            and info.peer_info.port == addr.port
-        ):
-            return
-
-        # update info
-        update_interval = 20 * 60
-        if self.nTime - info.nTime > update_interval:
-            info.nTime = self.nTime
-    
     async def size(self):
         async with self.lock:
             return len(self.random_pos)
@@ -562,9 +564,9 @@ class AddressManager:
         async with self.lock:
             return self.get_peers_()
 
-    async def mark_connected(self, addr):
+    async def connect(self, addr, nTime=time.time()):
         async with self.lock:
-            return self.mark_connected_(addr)
+            return self.connect_(addr, nTime)
 
     # Serialized format:
     # * nKey

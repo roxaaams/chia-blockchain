@@ -195,3 +195,17 @@ class RejectHeaderBlockRequest:
 @cbor_message
 class RequestMempoolTransactions:
     filter: bytes
+
+
+@dataclass(frozen=True)
+@cbor_message
+class RequestPeers:
+    """
+    Return full list of peers
+    """
+
+
+@dataclass(frozen=True)
+@cbor_message
+class RespondPeers:
+    peer_list: List[PeerInfo]

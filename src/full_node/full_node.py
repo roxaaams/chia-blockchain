@@ -95,6 +95,9 @@ class FullNode:
 
         self.db_path = path_from_root(root_path, config["database_path"])
         mkdir(self.db_path.parent)
+        self.peer_gossip_task = asyncio.create_task(
+            self.periodically_peer_gossip()
+        )
 
     @classmethod
     async def create(cls: Type, *args, **kwargs):
@@ -263,9 +266,20 @@ class FullNode:
 
         yield OutboundMessage(
             NodeType.FULL_NODE,
-            Message("request_peers", introducer_protocol.RequestPeers()),
+            Message("request_peers", full_node_protocol.RequestPeers()),
             Delivery.RESPOND,
         )
+    
+    async def periodically_peer_gossip(self):
+        while True:
+            # Randomly choose to get peers from 12 to 24 hours.
+            sleep_interval = random.randint(3600 * 12, 3600 * 24)
+            await asyncio.sleep(sleep_interval)
+            outbound_message = OutboundMessage(
+                NodeType.FULL_NODE,
+                Message("request_peers", full_node_protocol.RequestPeers()),
+                Delivery.BROADCAST,
+            )  
 
     def _num_needed_peers(self) -> int:
         assert self.global_connections is not None
