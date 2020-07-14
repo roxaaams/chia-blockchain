@@ -17,16 +17,11 @@ class AddressManagerTest(AddressManager):
 
     def make_deterministic(self):
         # Fix seed.
-        self.nKey = 2 ** 256 - 1
+        self.key = 2 ** 256 - 1
     
     async def simulate_connection_fail(self, peer):
         await self.mark_good(peer.peer_info, True, 1)
         await self.attempt(peer.peer_info, False, time.time()-61)
-
-    def mark_peer_not_terrible(self, peer):
-        info, _ = self.find_(peer)
-        if info is not None:
-            info.nTime = time.time()
 
 class TestPeerManager:
     @pytest.mark.asyncio
@@ -259,13 +254,13 @@ class TestPeerManager:
         peers1 = await addrman.get_peers()
         assert len(peers1) == 0
 
-        peer1 = PeerInfo("250.250.2.1", 8444)
-        peer2 = PeerInfo("250.250.2.2", 9999)
-        peer3 = PeerInfo("251.252.2.3", 8444)
-        peer4 = PeerInfo("251.252.2.4", 8444)
-        peer5 = PeerInfo("251.252.2.5", 8444)
-        source1 = PeerInfo("250.1.2.1", 8444)
-        source2 = PeerInfo("250.2.3.3", 8444)
+        peer1 = PeerInfo("250.250.2.1", 8444, time.time())
+        peer2 = PeerInfo("250.250.2.2", 9999, time.time())
+        peer3 = PeerInfo("251.252.2.3", 8444, time.time())
+        peer4 = PeerInfo("251.252.2.4", 8444, time.time())
+        peer5 = PeerInfo("251.252.2.5", 8444, time.time())
+        source1 = PeerInfo("250.1.2.1", 8444, time.time())
+        source2 = PeerInfo("250.2.3.3", 8444, time.time())
 
         # Test: Ensure GetPeers works with new addresses.
         assert await addrman.add_to_new_table([peer1], source1)
@@ -273,11 +268,6 @@ class TestPeerManager:
         assert await addrman.add_to_new_table([peer3], source1)
         assert await addrman.add_to_new_table([peer4], source1)
         assert await addrman.add_to_new_table([peer5], source1)
-        addrman.mark_peer_not_terrible(peer1)
-        addrman.mark_peer_not_terrible(peer2)
-        addrman.mark_peer_not_terrible(peer3)
-        addrman.mark_peer_not_terrible(peer4)
-        addrman.mark_peer_not_terrible(peer5)
         
         # GetPeers returns 23% of addresses, 23% of 5 is 1 rounded down.
         peers2 = await addrman.get_peers()
@@ -293,9 +283,8 @@ class TestPeerManager:
         for i in range(1, 8 * 256):
             octet1 = i % 256
             octet2 = i >> 8 % 256
-            peer = PeerInfo(str(octet1) + "." + str(octet2) + ".1.23", 8444)
+            peer = PeerInfo(str(octet1) + "." + str(octet2) + ".1.23", 8444, time.time())
             await addrman.add_to_new_table([peer])
-            addrman.mark_peer_not_terrible(peer)
             if i % 8 == 0:
                 await addrman.mark_good(peer)
 
@@ -315,17 +304,17 @@ class TestPeerManager:
         peer_info1 = ExtendedPeerInfo(peer1, source1)
         # Test: Make sure key actually randomizes bucket placement. A fail on
         # this test could be a security issue.
-        nKey1 = 2**256 - 1
-        nKey2 = 2**128 - 1
-        bucket1 = peer_info1.get_tried_bucket(nKey1)
-        bucket2 = peer_info1.get_tried_bucket(nKey2)
+        key1 = 2**256 - 1
+        key2 = 2**128 - 1
+        bucket1 = peer_info1.get_tried_bucket(key1)
+        bucket2 = peer_info1.get_tried_bucket(key2)
         assert bucket1 != bucket2
 
         # Test: Two addresses with same IP but different ports can map to
         # different buckets because they have different keys.
         peer_info2 = ExtendedPeerInfo(peer2, source1)
         assert peer1.get_key() != peer2.get_key()
-        assert peer_info1.get_tried_bucket(nKey1) != peer_info2.get_tried_bucket(nKey1)
+        assert peer_info1.get_tried_bucket(key1) != peer_info2.get_tried_bucket(key1)
 
         # Test: IP addresses in the same group (\16 prefix for IPv4) should
         # never get more than 8 buckets
@@ -333,7 +322,7 @@ class TestPeerManager:
         for i in range(255):
             peer = PeerInfo("250.1.1." + str(i), 8444)
             extended_peer_info = ExtendedPeerInfo(peer, peer)
-            bucket = extended_peer_info.get_tried_bucket(nKey1)
+            bucket = extended_peer_info.get_tried_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
         
@@ -345,7 +334,7 @@ class TestPeerManager:
         for i in range(255):
             peer = PeerInfo("250." + str(i) + ".1.1", 8444)
             extended_peer_info = ExtendedPeerInfo(peer, peer)
-            bucket = extended_peer_info.get_tried_bucket(nKey1)
+            bucket = extended_peer_info.get_tried_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
         assert len(buckets) > 8
@@ -360,15 +349,15 @@ class TestPeerManager:
         peer_info1 = ExtendedPeerInfo(peer1, source1)
         # Test: Make sure key actually randomizes bucket placement. A fail on
         # this test could be a security issue.
-        nKey1 = 2**256 - 1
-        nKey2 = 2**128 - 1
-        bucket1 = peer_info1.get_new_bucket(nKey1)
-        bucket2 = peer_info1.get_new_bucket(nKey2)
+        key1 = 2**256 - 1
+        key2 = 2**128 - 1
+        bucket1 = peer_info1.get_new_bucket(key1)
+        bucket2 = peer_info1.get_new_bucket(key2)
         assert bucket1 != bucket2
 
         # Test: Ports should not affect bucket placement in the addr
         peer_info2 = ExtendedPeerInfo(peer2, source1)
-        assert peer_info1.get_new_bucket(nKey1) == peer_info2.get_new_bucket(nKey1)
+        assert peer_info1.get_new_bucket(key1) == peer_info2.get_new_bucket(key1)
 
         # Test: IP addresses in the same group (\16 prefix for IPv4) should
         # always map to the same bucket.
@@ -376,7 +365,7 @@ class TestPeerManager:
         for i in range(255):
             peer = PeerInfo("250.1.1." + str(i), 8444)
             extended_peer_info = ExtendedPeerInfo(peer, peer)
-            bucket = extended_peer_info.get_new_bucket(nKey1)
+            bucket = extended_peer_info.get_new_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
         assert len(buckets) == 1
@@ -388,7 +377,7 @@ class TestPeerManager:
             src = PeerInfo("251.4.1.1", 8444)
             peer = PeerInfo(str(250 + i // 255) + "." + str(i % 256) + ".1.1", 8444)
             extended_peer_info = ExtendedPeerInfo(peer, src)
-            bucket = extended_peer_info.get_new_bucket(nKey1)
+            bucket = extended_peer_info.get_new_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
         assert len(buckets) <= 64
@@ -400,7 +389,7 @@ class TestPeerManager:
             src = PeerInfo("250." + str(i) + ".1.1", 8444)
             peer = PeerInfo("250.1.1.1", 8444)
             extended_peer_info = ExtendedPeerInfo(peer, src)
-            bucket = extended_peer_info.get_new_bucket(nKey1)
+            bucket = extended_peer_info.get_new_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
         
