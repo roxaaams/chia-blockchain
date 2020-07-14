@@ -235,7 +235,7 @@ class TestPeerManager:
         assert info == peer1
 
     @pytest.mark.asyncio
-    async def test_addrman_create(self):
+    async def test_addrman_delete(self):
         addrman = AddressManagerTest()
         assert await addrman.size() == 0
 
