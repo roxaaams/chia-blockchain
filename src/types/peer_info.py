@@ -18,7 +18,7 @@ class PeerInfo(Streamable):
         object.__setattr__(self, 'host', host)
         object.__setattr__(self, 'port', port)
         object.__setattr__(self, 'timestamp', timestamp)
-    
+
     def __eq__(self, other):
         return (self.host == other.host and self.port == other.port)
 

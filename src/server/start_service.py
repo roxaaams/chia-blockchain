@@ -2,6 +2,9 @@ import asyncio
 import logging
 import logging.config
 import signal
+import random
+import math
+import time
 
 from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
 
@@ -17,8 +20,6 @@ from src.types.peer_info import PeerInfo
 from src.util.logging import initialize_logging
 from src.util.config import load_config_cli, load_config
 from src.util.setproctitle import setproctitle
-from random import randrange
-from math import log
 from .reconnect_task import start_reconnect_task
 
 OutboundMessageGenerator = AsyncGenerator[OutboundMessage, None]
@@ -44,9 +45,8 @@ def create_periodic_introducer_poll_task(
             ) * avg_interval_seconds * -1000000.0 + 0.5
         )
 
-
     def _num_needed_peers() -> int:
-        diff = target_outgoing_connections - global_connections.count_outbound_connections()
+        diff = target_outbound_connections - global_connections.count_outbound_connections()
         return diff if diff >= 0 else 0
 
     async def introducer_client():
@@ -54,18 +54,17 @@ def create_periodic_introducer_poll_task(
             msg = Message("request_peers", introducer_protocol.RequestPeers())
             yield OutboundMessage(NodeType.INTRODUCER, msg, Delivery.RESPOND)
 
+        # The first time connecting to introducer, keep trying to connect
+        if _num_needed_peers():
+            await server.start_client(peer_info, on_connect)
+
         # If we are still connected to introducer, disconnect
         for connection in global_connections.get_connections():
             if connection.connection_type == NodeType.INTRODUCER:
                 global_connections.close(connection)
-        # The first time connecting to introducer, keep trying to connect
-        if _num_needed_peers():
-            if not await server.start_client(peer_info, on_connect):
-                await asyncio.sleep(5)
-                continue
-    
+
     async def connect_to_peers():
-        next_feeler = poisson_next_send(time.time()*1000*1000, 120)
+        next_feeler = poisson_next_send(time.time() * 1000 * 1000, 120)
 
         while True:
             # We don't know any address, connect to the introducer to get some.
@@ -96,11 +95,11 @@ def create_periodic_introducer_poll_task(
 
             if count_outbound >= target_outbound_connections:
                 if time.time() * 1000 * 1000 > next_feeler:
-                    next_feeler = poisson_next_send(time.time() * 1000 * 1000, 120)                    
+                    next_feeler = poisson_next_send(time.time() * 1000 * 1000, 120)
                     is_feeler = True
                 else:
                     continue
-            
+
             address_manager = global_connections.peers.address_manager
             await address_manager.resolve_tried_collisions()
             tries = 0
@@ -135,8 +134,8 @@ def create_periodic_introducer_poll_task(
             if count_outbound >= target_outbound_connections:
                 disconnect_after_handshake = True
             if addr is not None:
-                asyncio.create_task(self.server.start_client(addr, None, None, disconnect_after_handshake))
-            await asnycio.sleep(5)
+                asyncio.create_task(server.start_client(addr, None, None, disconnect_after_handshake))
+            await asyncio.sleep(5)
 
     return asyncio.create_task(connect_to_peers())
 

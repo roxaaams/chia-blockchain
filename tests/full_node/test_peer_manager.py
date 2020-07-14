@@ -133,10 +133,12 @@ class TestPeerManager:
 
         # Test: Select pulls from new and tried regardless of port number.
         ports = []
-        for _ in range(20):
+        for _ in range(200):
             peer = await addrman.select_peer()
             if peer.port not in ports:
                 ports.append(peer.port)
+            if len(ports) == 3:
+                break
         assert len(ports) == 3
 
     @pytest.mark.asyncio

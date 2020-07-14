@@ -5,7 +5,6 @@ from src.types.peer_info import PeerInfo
 
 import time
 import asyncio
-import math
 
 TRIED_BUCKETS_PER_GROUP = 8
 NEW_BUCKETS_PER_SOURCE_GROUP = 64
@@ -21,6 +20,7 @@ HORIZON_DAYS = 30
 MAX_RETRIES = 3
 MIN_FAIL_DAYS = 7
 MAX_FAILURES = 10
+
 
 # This is a Python port from 'CAddrInfo' class from Bitcoin core code.
 class ExtendedPeerInfo:
@@ -44,8 +44,8 @@ class ExtendedPeerInfo:
 
     def to_string(self):
         return self.peer_info.host
-        + " " + int(self.peer_info.port) 
-        + " " + self.src.host 
+        + " " + int(self.peer_info.port)
+        + " " + self.src.host
         + " " + int(self.src.port)
 
     @classmethod
@@ -53,14 +53,14 @@ class ExtendedPeerInfo:
         blobs = peer_str.split(" ")
         assert len(blobs) == 4
         peer_info = PeerInfo(blobs[0], int(blobs[1]))
-        src_peer = PeerInfo(blobs[2], int(blobs[3])) 
+        src_peer = PeerInfo(blobs[2], int(blobs[3]))
         return cls(peer_info, src_peer)
 
     def get_tried_bucket(self, key):
         hash1 = int.from_bytes(
             bytes(
                 std_hash(
-                    key.to_bytes(32, byteorder='big') 
+                    key.to_bytes(32, byteorder='big')
                     + self.peer_info.get_key()
                 )[:8]
             ), byteorder='big'
@@ -117,7 +117,7 @@ class ExtendedPeerInfo:
 
     def is_terrible(self, now=time.time()):
         # never remove things tried in the last minute
-        if (self.last_try > 0 and self.last_try >= now - 60): 
+        if (self.last_try > 0 and self.last_try >= now - 60):
             return False
 
         # came in a flying DeLorean
@@ -140,7 +140,7 @@ class ExtendedPeerInfo:
 
         # N successive failures in the last week
         if (
-            now - self.last_success > MIN_FAIL_DAYS * 24 * 60 * 60 
+            now - self.last_success > MIN_FAIL_DAYS * 24 * 60 * 60
             and self.num_attempts >= MAX_FAILURES
         ):
             return True
@@ -578,7 +578,7 @@ class AddressManager:
     # * for each bucket:
     # * * number of elements
     # * * for each element: index
-    
+
     # Notice that tried_matrix, map_addr and vVector are never encoded explicitly;
     # they are instead reconstructed from the other information.
     #
@@ -674,7 +674,7 @@ class AddressManager:
                                 self.new_matrix[bucket][bucket_pos] = index
                 for node_id, info in self.map_info:
                     if (
-                        info.is_tried == False
+                        not info.is_tried
                         and info.ref_count == 0
                     ):
                         self.delete_new_entry_(node_id)

@@ -1,14 +1,13 @@
 import logging
-import random
 import time
 from asyncio import StreamReader, StreamWriter
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
+from typing import Any, AsyncGenerator, Callable, List, Optional
 
 from src.server.outbound_message import Message, NodeType, OutboundMessage
 from src.types.peer_info import PeerInfo
-from src.types.sized_bytes import bytes32
+# from src.types.sized_bytes import bytes32
 from src.util import cbor
-from src.util.ints import uint16, uint64
+from src.util.ints import uint16
 from src.server.peer_manager import AddressManager
 
 from src.util.config import load_config_cli
@@ -135,7 +134,6 @@ class PeerConnections:
 
     def close(self, connection: Connection, keep_peer: bool = False):
         if connection in self._all_connections:
-            info = connection.get_peer_info()
             self._all_connections.remove(connection)
             connection.close()
             self._state_changed("close_connection")
@@ -174,16 +172,16 @@ class PeerConnections:
 
     async def add_potential_peers(self, peers: Optional[List[PeerInfo]], peer_source: Optional[PeerInfo], penalty=0):
         await self.address_manager.add_to_new_table(peers, peer_source, penalty)
-    
+
     async def get_peers(self):
         peers = await self.address_manager.get_peers()
         return peers
-    
+
     async def mark_attempted(self, peer_info):
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.attempt(peer_info, True)
-    
+
     async def update_connection_time(self, peer_info):
         if peer_info is None or not peer_info.port:
             return

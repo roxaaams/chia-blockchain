@@ -3,7 +3,9 @@ import concurrent
 import logging
 import random
 import ssl
+import time
 from typing import Any, AsyncGenerator, List, Optional, Tuple
+from src.protocols import full_node_protocol
 
 from aiter import aiter_forker, iter_to_aiter, join_aiters, map_aiter, push_aiter
 
@@ -173,7 +175,7 @@ async def perform_handshake(
     connection, global_connections = pair
     if (
         not connection.is_outbound
-        and connection.connection_type == NodeType.FULL_NODE:
+        and connection.connection_type == NodeType.FULL_NODE
     ):
         if not global_connections.accept_inbound_connections():
             connection.close()
@@ -237,16 +239,17 @@ async def perform_handshake(
                 )
                 if connection.is_feeler:
                     connection.close()
-                    global_connections.close(connection)                    
+                    global_connections.close(connection)
         yield connection, global_connections
     except (ProtocolError, asyncio.IncompleteReadError, OSError, Exception,) as e:
         if connection.connection_type == NodeType.FULL_NODE:
-            await global_connection.mark_attempted(connection.get_peer_info())
+            await global_connections.mark_attempted(connection.get_peer_info())
         connection.log.warning(f"{e}, handshake not completed. Connection not created.")
         # Make sure to close the connection even if it's not in global connections
         connection.close()
         # Remove the conenction from global connections
         global_connections.close(connection)
+
 
 async def connection_to_message(
     pair: Tuple[Connection, PeerConnections],

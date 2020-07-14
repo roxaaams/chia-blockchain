@@ -3,6 +3,7 @@ import concurrent
 import logging
 import traceback
 import time
+import random
 from asyncio import Event
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional, Tuple, Type, Callable
@@ -23,7 +24,6 @@ from src.full_node.sync_blocks_processor import SyncBlocksProcessor
 from src.full_node.sync_peers_handler import SyncPeersHandler
 from src.full_node.sync_store import SyncStore
 from src.protocols import (
-    introducer_protocol,
     farmer_protocol,
     full_node_protocol,
     timelord_protocol,
@@ -269,7 +269,7 @@ class FullNode:
             Message("request_peers", full_node_protocol.RequestPeers()),
             Delivery.RESPOND,
         )
-    
+
     async def periodically_peer_gossip(self):
         while True:
             # Randomly choose to get peers from 12 to 24 hours.
@@ -279,7 +279,9 @@ class FullNode:
                 NodeType.FULL_NODE,
                 Message("request_peers", full_node_protocol.RequestPeers()),
                 Delivery.BROADCAST,
-            )  
+            )
+            if self.server is not None:
+                self.server.push_message(outbound_message)
 
     def _num_needed_peers(self) -> int:
         assert self.global_connections is not None
