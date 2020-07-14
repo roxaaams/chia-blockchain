@@ -232,7 +232,7 @@ class TestPeerManager:
         info, node_id = addrman.create_(peer1, peer1)
         assert info == peer1
         info, _ = addrman.find_(peer1)
-        assert info == peer1
+        assert info.peer_info == peer1
 
     @pytest.mark.asyncio
     async def test_addrman_delete(self):
