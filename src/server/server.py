@@ -37,7 +37,7 @@ async def start_server(
 
     def add_connection_type(
         srw: Tuple[asyncio.StreamReader, asyncio.StreamWriter]
-    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter, OnConnectFunc]:
+    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter, OnConnectFunc, bool, bool]:
         ssl_object = srw[1].get_extra_info(name="ssl_object")
         peer_cert = ssl_object.getpeercert()
         self.log.info(f"Client authed as {peer_cert}")

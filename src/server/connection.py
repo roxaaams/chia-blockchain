@@ -1,13 +1,14 @@
 import logging
 import time
+import random
 from asyncio import StreamReader, StreamWriter
-from typing import Any, AsyncGenerator, Callable, List, Optional
+from typing import Any, AsyncGenerator, Callable, List, Optional, Dict
 
 from src.server.outbound_message import Message, NodeType, OutboundMessage
 from src.types.peer_info import PeerInfo
-# from src.types.sized_bytes import bytes32
+from src.types.sized_bytes import bytes32
 from src.util import cbor
-from src.util.ints import uint16
+from src.util.ints import uint16, uint64
 from src.server.peer_manager import AddressManager
 
 from src.util.config import load_config_cli
@@ -63,7 +64,7 @@ class Connection:
         self._cached_peer_name = self.writer.get_extra_info("peername")
 
         # Get max inbound connection count from full node config.
-        config = load_config_cli("full_node", "config.yaml", DEFAULT_ROOT_PATH)
+        config = load_config_cli(DEFAULT_ROOT_PATH, "config.yaml", "full_node")
         self.max_inbound_count = config["target_peer_count"] - config["target_outbound_peer_count"]
 
     def get_peername(self):
@@ -113,6 +114,10 @@ class PeerConnections:
         self._all_connections = all_connections
         self.address_manager = AddressManager()
         self.state_changed_callback: Optional[Callable] = None
+        self.peers = Peers()
+        for c in all_connections:
+            if c.connection_type == NodeType.FULL_NODE:
+                self.peers.add(c.get_peer_info())
 
     def set_state_changed_callback(self, callback: Callable):
         self.state_changed_callback = callback
@@ -129,21 +134,45 @@ class PeerConnections:
 
         if connection.connection_type == NodeType.FULL_NODE:
             self._state_changed("add_connection")
+            return self.peers.add(connection.get_peer_info())
+
         self._state_changed("add_connection")
         return True
 
     def close(self, connection: Connection, keep_peer: bool = False):
         if connection in self._all_connections:
+            info = connection.get_peer_info()
             self._all_connections.remove(connection)
             connection.close()
             self._state_changed("close_connection")
+            if not keep_peer:
+                self.peers.remove(info)
 
     def close_all_connections(self):
         for connection in self._all_connections:
             connection.close()
             self._state_changed("close_connection")
         self._all_connections = []
+        self.peers = Peers()
 
+    def get_connections(self):
+        return self._all_connections
+
+    def get_full_node_connections(self):
+        return list(filter(Connection.get_peer_info, self._all_connections))
+
+    def get_full_node_peerinfos(self):
+        return list(filter(None, map(Connection.get_peer_info, self._all_connections)))
+
+    def get_unconnected_peers(self, max_peers=0, recent_threshold=9999999):
+        connected = self.get_full_node_peerinfos()
+        peers = self.peers.get_peers(recent_threshold=recent_threshold)
+        unconnected = list(filter(lambda peer: peer not in connected, peers))
+        if not max_peers:
+            max_peers = len(unconnected)
+        return unconnected[:max_peers]
+
+    # Functions related to outbound and inbound connections for the full node.
     def count_outbound_connections(self):
         return len(
             [
@@ -165,6 +194,7 @@ class PeerConnections:
         )
         return inbound_count < self.max_inbound_count
 
+    # Functions related to AddressManager calls.
     async def add_potential_peer(self, peer: Optional[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
         if peer is None or not peer.port:
             return False
@@ -177,27 +207,64 @@ class PeerConnections:
         peers = await self.address_manager.get_peers()
         return peers
 
-    async def mark_attempted(self, peer_info):
+    async def mark_attempted(self, peer_info: Optional[PeerInfo]):
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.attempt(peer_info, True)
 
-    async def update_connection_time(self, peer_info):
+    async def update_connection_time(self, peer_info: Optional[PeerInfo]):
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.connect(peer_info)
 
-    async def mark_good(self, peer_info):
+    async def mark_good(self, peer_info: Optional[PeerInfo]):
         if peer_info is None or not peer_info.port:
             return
         # Always test before evict.
         await self.address_manager.mark_good(peer_info, True)
 
-    def get_connections(self):
-        return self._all_connections
 
-    def get_full_node_connections(self):
-        return list(filter(Connection.get_peer_info, self._all_connections))
+# This class is kept only for the introducer, to provide high quality peers.
+# It might get removed in the future. The full node provides 'get_peers' call
+# using AddressManager.
 
-    def get_full_node_peerinfos(self):
-        return list(filter(None, map(Connection.get_peer_info, self._all_connections)))
+class Peers:
+    """
+    Has the list of known full node peers that are already connected or may be
+    connected to, and the time that they were last added.
+    """
+
+    def __init__(self):
+        self._peers: List[PeerInfo] = []
+        self.time_added: Dict[bytes32, uint64] = {}
+
+    def add(self, peer: Optional[PeerInfo]) -> bool:
+        if peer is None or not peer.port:
+            return False
+        if peer not in self._peers:
+            self._peers.append(peer)
+        self.time_added[peer.get_hash()] = uint64(int(time.time()))
+        return True
+
+    def remove(self, peer: Optional[PeerInfo]) -> bool:
+        if peer is None or not peer.port:
+            return False
+        try:
+            self._peers.remove(peer)
+            return True
+        except ValueError:
+            return False
+
+    def get_peers(
+        self, max_peers: int = 0, randomize: bool = False, recent_threshold=9999999
+    ) -> List[PeerInfo]:
+        target_peers = [
+            peer
+            for peer in self._peers
+            if time.time() - self.time_added[peer.get_hash()] < recent_threshold
+        ]
+        if not max_peers or max_peers > len(target_peers):
+            max_peers = len(target_peers)
+        if randomize:
+            random.shuffle(target_peers)
+        return target_peers[:max_peers]

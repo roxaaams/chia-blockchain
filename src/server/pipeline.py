@@ -6,6 +6,7 @@ import ssl
 import time
 from typing import Any, AsyncGenerator, List, Optional, Tuple
 from src.protocols import full_node_protocol
+from src.types.peer_info import PeerInfo
 
 from aiter import aiter_forker, iter_to_aiter, join_aiters, map_aiter, push_aiter
 
@@ -333,32 +334,57 @@ async def handle_message(
             return
 
         if full_message.function == "request_peers":
-            if global_connections is None:
+            # Handle here only full nodes peer gossip, and let
+            # the introducer use its own function.
+            if connection.connection_type == NodeType.FULL_NODE:
+                if global_connections is None:
+                    return
+                # Prevent a fingerprint attack.
+                if not connection.is_outbound:
+                    return
+                peers = await global_connections.get_peers()
+                outbound_message = OutboundMessage(
+                    NodeType.FULL_NODE,
+                    Message("respond_peers", full_node_protocol.RespondPeers(peers)),
+                    Delivery.RESPOND,
+                )
+                yield connection, outbound_message, global_connections
                 return
-            # Prevent a fingerprint attack.
-            if not connection.is_outbound:
-                return
-            peers = await global_connections.get_peers()
-            outbound_message = OutboundMessage(
-                NodeType.FULL_NODE,
-                Message("respond_peers", full_node_protocol.RespondPeers(peers)),
-                Delivery.RESPOND,
-            )
-            yield connection, outbound_message, global_connections
-            return
         elif full_message.function == "respond_peers":
             if global_connections is None:
                 return
-            peer_src = connection.get_peername()
-            peers = full_message.data["peer_list"]
-            for peer in peers:
-                if (
-                    peer.timestamp < 100000000
-                    or peer.timestamp > time.time() + 10 * 60
-                ):
-                    peer.timestamp = time.time() - 5 * 24 * 60 * 60
-                await global_connections.add_potential_peer(peer, peer_src, 2 * 60 * 60)
-            return
+            if connection.connection_type == NodeType.FULL_NODE:
+                peer_src = connection.get_peername()
+                peers = full_message.data["peer_list"]
+                for peer in peers:
+                    if (
+                        peer.timestamp < 100000000
+                        or peer.timestamp > time.time() + 10 * 60
+                    ):
+                        # Invalid timestamp, predefine a bad one.
+                        current_peer = PeerInfo(
+                            peer.host,
+                            peer.port,
+                            time.time() - 5 * 24 * 60 * 60,
+                        )
+                    else:
+                        current_peer = peer
+                    await global_connections.add_potential_peer(current_peer, peer_src, 2 * 60 * 60)
+                return
+            if connection.connection_type == NodeType.INTRODUCER:
+                peers = full_message.data["peer_list"]
+                for peer in peers:
+                    # Like DNS seeds from Bitcoin, messages from the introducer
+                    # should have timestamp=0.
+                    if peer.timestamp != 0:
+                        current_peer = PeerInfo(
+                            peer.host,
+                            peer.port,
+                        )
+                    else:
+                        current_peer = peer
+                    await global_connections.add_potential_peer(current_peer, current_peer, 0)
+                return
 
         f_with_peer_name = getattr(api, full_message.function + "_with_peer_name", None)
 
