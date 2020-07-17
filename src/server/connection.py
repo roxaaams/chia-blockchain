@@ -195,12 +195,12 @@ class PeerConnections:
         return inbound_count < self.max_inbound_count
 
     # Functions related to AddressManager calls.
-    async def add_potential_peer(self, peer: Optional[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
+    async def add_potential_peer(self, peer: PeerInfo, peer_source: Optional[PeerInfo], penalty=0):
         if peer is None or not peer.port:
             return False
         await self.address_manager.add_to_new_table([peer], peer_source, penalty)
 
-    async def add_potential_peers(self, peers: Optional[List[PeerInfo]], peer_source: Optional[PeerInfo], penalty=0):
+    async def add_potential_peers(self, peers: List[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
         await self.address_manager.add_to_new_table(peers, peer_source, penalty)
 
     async def get_peers(self):
