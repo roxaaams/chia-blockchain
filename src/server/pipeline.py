@@ -146,8 +146,8 @@ async def stream_reader_writer_to_connection(
     Maps a tuple of (StreamReader, StreamWriter, on_connect) to a ChiaConnection object,
     which also stores the type of connection (str). It is also added to the global list.
     """
-    sr, sw, on_connect = swrt
-    con = ChiaConnection(local_type, None, sr, sw, server_port, on_connect, log)
+    sr, sw, on_connect, is_outbound, is_feeler = swrt
+    con = ChiaConnection(local_type, None, sr, sw, server_port, on_connect, log, is_outbound, is_feeler)
 
     con.log.info(f"Connection with {con.get_peername()} established")
     return con
@@ -205,6 +205,14 @@ async def perform_handshake(
         if not global_connections.add(connection):
             raise ProtocolError(Err.DUPLICATE_CONNECTION, [False])
 
+        if (
+            not connection.is_outbound
+            and connection.connection_type == NodeType.FULL_NODE
+        ):
+            if not global_connections.accept_inbound_connections():
+                connection.close()
+                raise ProtocolError(Err.MAX_INBOUND_CONNECTIONS_REACHED)
+
         # Send Ack message
         await connection.send(Message("handshake_ack", HandshakeAck()))
 
@@ -226,9 +234,22 @@ async def perform_handshake(
                 f" established"
             )
         )
+        # Disconnect feeler connections and update connection timestamp.
+        if connection.connection_type == NodeType.FULL_NODE:
+            if connection.is_outbound:
+                await global_connections.mark_good(connection.get_peer_info())
+                await global_connections.update_connection_time(
+                    connection.get_peer_info()
+                )
+                if connection.is_feeler:
+                    connection.close()
+                    global_connections.close(connection)
+
         # Only yield a connection if the handshake is succesful and the connection is not a duplicate.
         yield connection, global_connections
     except (ProtocolError, asyncio.IncompleteReadError, OSError, Exception,) as e:
+        if connection.connection_type == NodeType.FULL_NODE
+            await global_connections.mark_attempted(connection.get_peer_info())
         connection.log.warning(f"{e}, handshake not completed. Connection not created.")
         # Make sure to close the connection even if it's not in global connections
         connection.close()
@@ -311,7 +332,67 @@ async def handle_message(
             yield connection, outbound_message, global_connections
             return
         elif full_message.function == "pong":
+            if connection.connection_type == NodeType.FULL_NODE:
+                await global_connections.update_connection_time(
+                    connection.get_peer_info()
+                )
             return
+        
+        # Peer gossip message handle.
+        if full_message.function == "request_peers":
+            # Handle here only full nodes peer gossip, and let
+            # the introducer use its own function.
+            if not isinstance(api, Introducer):
+                if global_connections is None:
+                    return
+                # Prevent a fingerprint attack.
+                if connection.is_outbound:
+                    return
+                peers = await global_connections.get_peers()
+                outbound_message = OutboundMessage(
+                    NodeType.FULL_NODE,
+                    Message("respond_peers", full_node_protocol.RespondPeers(peers)),
+                    Delivery.RESPOND,
+                )
+                yield connection, outbound_message, global_connections
+                return
+        elif full_message.function == "respond_peers":
+            if global_connections is None:
+                return
+            if connection.connection_type == NodeType.FULL_NODE:
+                peer_src = connection.get_peername()
+                peers = full_message.data["peer_list"]
+                for peer_bytes in peers:
+                    peer: PeerInfo = PeerInfo.from_bytes(peer_bytes)
+                    if (
+                        peer.timestamp < 100000000
+                        or peer.timestamp > time.time() + 10 * 60
+                    ):
+                        # Invalid timestamp, predefine a bad one.
+                        current_peer = PeerInfo(
+                            peer.host,
+                            peer.port,
+                            time.time() - 5 * 24 * 60 * 60,
+                        )
+                    else:
+                        current_peer = peer
+                    await global_connections.add_potential_peer(current_peer, peer_src, 2 * 60 * 60)
+                return
+            if connection.connection_type == NodeType.INTRODUCER:
+                peers = full_message.data["peer_list"]
+                for peer_bytes in peers:
+                    peer: PeerInfo = PeerInfo.from_bytes(peer_bytes)
+                    # Like DNS seeds from Bitcoin, messages from the introducer
+                    # should have timestamp=0.
+                    if peer.timestamp != 0:
+                        current_peer = PeerInfo(
+                            peer.host,
+                            peer.port,
+                        )
+                    else:
+                        current_peer = peer
+                    await global_connections.add_potential_peer(current_peer, current_peer, 0)
+                return
 
         f_with_peer_name = getattr(api, full_message.function + "_with_peer_name", None)
 
