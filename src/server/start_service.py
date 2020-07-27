@@ -2,8 +2,12 @@ import asyncio
 import logging
 import logging.config
 import signal
+import time
+import math
+import random
 
 from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
+from src.server.address_manager import ExtendedPeerInfo
 
 try:
     import uvloop
@@ -46,7 +50,7 @@ def create_periodic_introducer_poll_task(
         )
 
     def _num_needed_peers() -> int:
-        diff = target_outbound_connections - global_connections.count_outbound_connections()
+        diff = global_connections.target_outbound_count - global_connections.count_outbound_connections()
         return diff if diff >= 0 else 0
 
     async def introducer_client():
@@ -96,7 +100,7 @@ def create_periodic_introducer_poll_task(
 
             is_feeler = False
 
-            if count_outbound >= target_outbound_connections:
+            if _num_needed_peers() > 0:
                 if time.time() * 1000 * 1000 > next_feeler:
                     next_feeler = poisson_next_send(time.time() * 1000 * 1000, 120)
                     is_feeler = True
@@ -136,13 +140,14 @@ def create_periodic_introducer_poll_task(
                 got_peer = True
 
             disconnect_after_handshake = is_feeler
-            if count_outbound >= target_outbound_connections:
+            if _num_needed_peers() > 0:
                 disconnect_after_handshake = True
             if addr is not None:
                 asyncio.create_task(server.start_client(addr, None, None, disconnect_after_handshake))
             await asyncio.sleep(5)
 
     return asyncio.create_task(connect_to_peers())
+
 
 class Service:
     def __init__(

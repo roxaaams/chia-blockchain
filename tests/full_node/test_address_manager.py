@@ -1,6 +1,7 @@
 import asyncio
 import pytest
 import time
+import os
 from src.types.peer_info import PeerInfo
 from src.server.address_manager import ExtendedPeerInfo, AddressManager
 
@@ -515,3 +516,42 @@ class TestPeerManager:
         assert collision.peer_info == PeerInfo("250.1.1.18", 8444)
         await addrman.resolve_tried_collisions()
         assert await addrman.select_tried_collision() is None
+
+
+    @pytest.mark.asyncio
+    async def test_serialization(self):
+        addrman = AddressManagerTest()
+        peer1 = PeerInfo("250.7.1.1", 8333)
+        peer2 = PeerInfo("250.7.2.2", 9999)
+        peer3 = PeerInfo("250.7.3.3", 9999)
+        source = PeerInfo("252.5.1.1", 8333)
+        await addrman.add_to_new_table([peer1, peer2, peer3], source)
+        await addrman.mark_good(peer1)
+        filename = "serialize.dat"
+        if os.path.exists(filename):
+            os.remove(filename)
+        await addrman.serialize(filename)
+        addrman2 = AddressManagerTest()
+        await addrman2.unserialize(filename)
+        retrieved_peers = []
+        for _ in range(20):
+            peer = await addrman2.select_peer()
+            if peer not in retrieved_peers:
+                retrieved_peers.append(peer)
+            if len(retrieved_peers) == 3:
+                break
+        assert len(retrieved_peers) == 3
+        wanted_peers = [
+            ExtendedPeerInfo(peer1, source),
+            ExtendedPeerInfo(peer2, source),
+            ExtendedPeerInfo(peer3, source),
+        ]
+        recovered = 0
+        for target_peer in wanted_peers:
+            for current_peer in retrieved_peers:
+                if (
+                    current_peer.peer_info == target_peer.peer_info
+                    and current_peer.src == target_peer.src
+                ):
+                    recovered += 1
+        assert recovered == 3

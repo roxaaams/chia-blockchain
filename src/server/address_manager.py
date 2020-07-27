@@ -3,11 +3,11 @@ from secrets import randbits
 from random import randrange, choice
 
 from src.types.peer_info import PeerInfo
-from src.util.ints import uint32, uint64
 from typing import Dict, List, Optional
 from asyncio import Lock
 
 import time
+import math
 
 TRIED_BUCKETS_PER_GROUP = 8
 NEW_BUCKETS_PER_SOURCE_GROUP = 64
@@ -36,20 +36,22 @@ class ExtendedPeerInfo:
         self.src: Optional[PeerInfo] = src_peer
         if src_peer is None:
             self.src = peer_info
-        self.random_pos: Optional[uint32] = None
+        self.random_pos: Optional[int] = None
         self.is_tried: bool = False
-        self.ref_count: uint32 = 0
-        self.last_success: uint64 = 0
-        self.last_try: uint64 = 0
-        self.timestamp: uint64 = peer_info.timestamp
-        self.num_attempts: uint32 = 0
-        self.last_count_attempt: uint64 = 0
+        self.ref_count: int = int(0)
+        self.last_success: int = int(0)
+        self.last_try: int = int(0)
+        self.timestamp: int = peer_info.timestamp
+        self.num_attempts: int = int(0)
+        self.last_count_attempt: int = int(0)
 
     def to_string(self):
-        return self.peer_info.host
-        + " " + int(self.peer_info.port)
-        + " " + self.src.host
-        + " " + int(self.src.port)
+        assert self.src is not None
+        out = self.peer_info.host \
+        + ' ' + str(int(self.peer_info.port)) \
+        + ' ' + self.src.host \
+        + ' ' + str(int(self.src.port))
+        return out
 
     @classmethod
     def from_string(cls, peer_str: str):
@@ -105,7 +107,7 @@ class ExtendedPeerInfo:
         )
         return hash2 % NEW_BUCKET_COUNT
 
-    def get_bucket_position(self, key: int, is_new: bool, nBucket: uint32):
+    def get_bucket_position(self, key: int, is_new: bool, nBucket: int):
         ch = 'N' if is_new else 'K'
         hash1 = int.from_bytes(
             bytes(
@@ -119,7 +121,9 @@ class ExtendedPeerInfo:
         )
         return hash1 % BUCKET_SIZE
 
-    def is_terrible(self, now: uint64 = time.time()):
+    def is_terrible(self, now: Optional[int] = None):
+        if now is None:
+            now = int(math.floor(time.time()))
         # never remove things tried in the last minute
         if (self.last_try > 0 and self.last_try >= now - 60):
             return False
@@ -151,7 +155,9 @@ class ExtendedPeerInfo:
 
         return False
 
-    def get_selection_chance(self, now: uint64 = time.time()):
+    def get_selection_chance(self, now: Optional[int] = None):
+        if now is None:
+            now = int(math.floor(time.time()))
         chance = 1.0
         since_last_try = max(now - self.last_try, 0)
         # deprioritize very recent attempts away
@@ -167,27 +173,27 @@ class ExtendedPeerInfo:
 # This is a Python port from 'CAddrMan' class from Bitcoin core code.
 class AddressManager:
     def __init__(self):
-        self.id_count: uint32 = 0
+        self.id_count: int = 0
         self.key: int = randbits(256)
-        self.random_pos: List[uint32] = []
-        self.tried_matrix: List[List[uint32]] = [
+        self.random_pos: List[int] = []
+        self.tried_matrix: List[List[int]] = [
             [
                 -1 for x in range(BUCKET_SIZE)
             ]
             for y in range(TRIED_BUCKET_COUNT)
         ]
-        self.new_matrix: List[List[uint32]] = [
+        self.new_matrix: List[List[int]] = [
             [
                 -1 for x in range(BUCKET_SIZE)
             ]
             for y in range(NEW_BUCKET_COUNT)
         ]
-        self.tried_count: uint32 = 0
-        self.new_count: uint32 = 0
-        self.map_addr: Dict[str, uint32] = {}
-        self.map_info: Dict[uint32, ExtendedPeerInfo] = {}
-        self.last_good: uint64 = 1
-        self.tried_collisions: List[uint32] = []
+        self.tried_count: int = 0
+        self.new_count: int = 0
+        self.map_addr: Dict[str, int] = {}
+        self.map_info: Dict[int, ExtendedPeerInfo] = {}
+        self.last_good: int = 1
+        self.tried_collisions: List[int] = []
         self.lock: Lock = Lock()
 
     def create_(self, addr: PeerInfo, addr_src: Optional[PeerInfo]):
@@ -207,7 +213,7 @@ class AddressManager:
             return (None, node_id)
         return (self.map_info[node_id], node_id)
 
-    def swap_random_(self, rand_pos_1: uint32, rand_pos_2: uint32):
+    def swap_random_(self, rand_pos_1: int, rand_pos_2: int):
         if rand_pos_1 == rand_pos_2:
             return
         assert(rand_pos_1 < len(self.random_pos) and rand_pos_2 < len(self.random_pos))
@@ -218,7 +224,7 @@ class AddressManager:
         self.random_pos[rand_pos_1] = node_id_2
         self.random_pos[rand_pos_2] = node_id_1
 
-    def make_tried_(self, info: ExtendedPeerInfo, node_id: uint32):
+    def make_tried_(self, info: ExtendedPeerInfo, node_id: int):
         for bucket in range(NEW_BUCKET_COUNT):
             pos = info.get_bucket_position(self.key, True, bucket)
             if self.new_matrix[bucket][pos] == node_id:
@@ -247,7 +253,7 @@ class AddressManager:
         self.tried_count += 1
         info.is_tried = True
 
-    def clear_new_(self, bucket: uint32, pos: uint32):
+    def clear_new_(self, bucket: int, pos: int):
         if self.new_matrix[bucket][pos] != -1:
             delete_id = self.new_matrix[bucket][pos]
             delete_info = self.map_info[delete_id]
@@ -257,7 +263,7 @@ class AddressManager:
             if delete_info.ref_count == 0:
                 self.delete_new_entry_(delete_id)
 
-    def mark_good_(self, addr: PeerInfo, test_before_evict: bool, timestamp: uint64):
+    def mark_good_(self, addr: PeerInfo, test_before_evict: bool, timestamp: int):
         self.last_good = timestamp
         (info, node_id) = self.find_(addr)
         if info is None:
@@ -308,15 +314,20 @@ class AddressManager:
         else:
             self.make_tried_(info, node_id)
 
-    def delete_new_entry_(self, node_id: uint32):
+    def delete_new_entry_(self, node_id: int):
         info = self.map_info[node_id]
+        if (
+            info is None
+            or info.random_pos is None
+        ):
+            return
         self.swap_random_(info.random_pos, len(self.random_pos) - 1)
         self.random_pos = self.random_pos[:-1]
         del self.map_addr[info.peer_info.host]
         del self.map_info[node_id]
         self.new_count -= 1
 
-    def add_to_new_table_(self, addr: PeerInfo, source: Optional[PeerInfo], penalty: uint64):
+    def add_to_new_table_(self, addr: PeerInfo, source: Optional[PeerInfo], penalty: int):
         is_unique = False
         (info, node_id) = self.find_(addr)
         if (
@@ -389,7 +400,7 @@ class AddressManager:
                     self.delete_new_entry_(node_id)
         return is_unique
 
-    def attempt_(self, addr: PeerInfo, count_failures: bool, timestamp: uint64):
+    def attempt_(self, addr: PeerInfo, count_failures: bool, timestamp: int):
         info, _ = self.find_(addr)
         if info is None:
             return
@@ -405,7 +416,7 @@ class AddressManager:
             info.last_count_attempt = timestamp
             info.num_attempts += 1
 
-    def select_peer_(self, new_only: bool) -> ExtendedPeerInfo:
+    def select_peer_(self, new_only: bool) -> Optional[ExtendedPeerInfo]:
         if len(self.random_pos) == 0:
             return None
 
@@ -475,7 +486,7 @@ class AddressManager:
             if resolved:
                 self.tried_collisions.remove(node_id)
 
-    def select_tried_collision_(self) -> ExtendedPeerInfo:
+    def select_tried_collision_(self) -> Optional[ExtendedPeerInfo]:
         if len(self.tried_collisions) == 0:
             return None
         new_id = choice(self.tried_collisions)
@@ -511,7 +522,7 @@ class AddressManager:
 
         return addr
 
-    def connect_(self, addr: PeerInfo, timestamp: uint64):
+    def connect_(self, addr: PeerInfo, timestamp: int):
         info, _ = self.find_(addr)
         if info is None:
             return
@@ -535,21 +546,27 @@ class AddressManager:
         self,
         addresses: List[PeerInfo],
         source: Optional[PeerInfo] = None,
-        penalty: uint64 = 0
+        penalty: int = 0
     ):
         is_added = False
         async with self.lock:
             for addr in addresses:
-                is_added = is_added or self.add_to_new_table_(addr, source, penalty)
+                cur_peer_added = self.add_to_new_table_(addr, source, penalty)
+                is_added = is_added or cur_peer_added
         return is_added
 
     # Mark an entry as accesible.
-    async def mark_good(self, addr: PeerInfo, test_before_evict: bool = True, timestamp: uint64 = time.time()):
+    async def mark_good(
+        self,
+        addr: PeerInfo,
+        test_before_evict: bool = True,
+        timestamp: int = math.floor(time.time()),
+    ):
         async with self.lock:
             self.mark_good_(addr, test_before_evict, timestamp)
 
     # Mark an entry as connection attempted to.
-    async def attempt(self, addr: PeerInfo, count_failures: bool, timestamp: uint64 = time.time()):
+    async def attempt(self, addr: PeerInfo, count_failures: bool, timestamp: int = math.floor(time.time())):
         async with self.lock:
             self.attempt_(addr, count_failures, timestamp)
 
@@ -573,7 +590,7 @@ class AddressManager:
         async with self.lock:
             return self.get_peers_()
 
-    async def connect(self, addr: PeerInfo, timestamp: uint64 = time.time()):
+    async def connect(self, addr: PeerInfo, timestamp: int = math.floor(time.time())):
         async with self.lock:
             return self.connect_(addr, timestamp)
 
@@ -617,6 +634,7 @@ class AddressManager:
                 count_ids = 0
                 for node_id, info in self.map_info.items():
                     if info.is_tried:
+                        assert info is not None
                         assert count_ids != self.tried_count
                         writer.write(info.to_string() + "\n")
                         count_ids += 1
@@ -633,7 +651,6 @@ class AddressManager:
                             writer.write(str(index) + "\n")
 
     async def unserialize(self, filename):
-        await self.clear()
         async with self.lock:
             with open(filename, 'r') as reader:
                 self.key = int(reader.readline())
@@ -653,7 +670,7 @@ class AddressManager:
                 id_count = self.new_count
 
                 for n in range(self.tried_count):
-                    info = ExtendedPeerInfo.from_src(reader.readline())
+                    info = ExtendedPeerInfo.from_string(reader.readline())
                     tried_bucket = info.get_tried_bucket(self.key)
                     tried_bucket_pos = info.get_bucket_position(self.key, False, tried_bucket)
                     if self.tried_matrix[tried_bucket][tried_bucket_pos] == -1:
@@ -681,7 +698,7 @@ class AddressManager:
                             ):
                                 info.ref_count += 1
                                 self.new_matrix[bucket][bucket_pos] = index
-                for node_id, info in self.map_info:
+                for node_id, info in self.map_info.items():
                     if (
                         not info.is_tried
                         and info.ref_count == 0

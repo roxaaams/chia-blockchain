@@ -125,20 +125,25 @@ class ChiaConnection:
 
 
 class PeerConnections:
-    def __init__(self, all_connections: List[ChiaConnection] = []):
+    def __init__(self, api: Any, config: Dict, all_connections: List[ChiaConnection] = []):
         self._all_connections = all_connections
         # Only full node peers are added to `peers`
         self.peers = Peers()
-        self.address_manager = AddressManager()
+        if not isinstance(api, FullNode):
+            self.address_manager = None
+        else:
+            self.address_manager = AddressManager()
+            peer_table_path = config["peer_table_path"]
+            if os.path.exists(peer_table_path):
+                await addrman.unserialize(peer_table_path)
         for c in all_connections:
             if c.connection_type == NodeType.FULL_NODE:
                 self.peers.add(c.get_peer_info())
         self.state_changed_callback: Optional[Callable] = None
         # Use config instead...
-        self.max_inbound_count = 20
-
-    def set_inbound_limit(self, inbound_count):
-        self.max_inbound_count = inbound_count
+        if isinstance(api, FullNode):
+            self.max_inbound_count = config["target_peer_count"] - config["target_outbound_peer_count"]
+            self.target_outbound_count = config["target_outbound_peer_count"]
 
     def set_state_changed_callback(self, callback: Callable):
         self.state_changed_callback = callback
@@ -196,40 +201,54 @@ class PeerConnections:
 
     # Functions related to AddressManager calls.
     async def add_potential_peer(self, peer: PeerInfo, peer_source: Optional[PeerInfo], penalty=0):
+        if self.address_manager is None
+            return
         if peer is None or not peer.port:
             return False
         await self.address_manager.add_to_new_table([peer], peer_source, penalty)
 
     async def add_potential_peers(self, peers: List[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
+        if self.address_manager is None
+            return
         await self.address_manager.add_to_new_table(peers, peer_source, penalty)
 
     async def get_peers(self):
+        if self.address_manager is None
+            return []
         peers = await self.address_manager.get_peers()
         return peers
 
     async def mark_attempted(self, peer_info: Optional[PeerInfo]):
+        if self.address_manager is None
+            return
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.attempt(peer_info, True)
 
     async def update_connection_time(self, peer_info: Optional[PeerInfo]):
+        if self.address_manager is None
+            return
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.connect(peer_info)
 
     async def mark_good(self, peer_info: Optional[PeerInfo]):
+        if self.address_manager is None
+            return
         if peer_info is None or not peer_info.port:
             return
         # Always test before evict.
         await self.address_manager.mark_good(peer_info, True)
 
     async def size(self):
+        if self.address_manager is None
+            return 0
         return await self.address_manager.size()
 
     # Functions related to outbound and inbound connections for the full node.
     def count_outbound_connections(self):
         return len(self.get_outbound_connections())
-    
+
     def get_outbound_connections(self):
         return [
             conn
@@ -252,6 +271,7 @@ class PeerConnections:
 # This class is kept only for the introducer, to provide high quality peers.
 # It might get removed in the future. The full node provides 'get_peers' call
 # using AddressManager.
+
 
 class Peers:
     """
