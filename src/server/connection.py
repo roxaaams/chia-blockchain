@@ -137,7 +137,7 @@ class PeerConnections:
             self.address_manager = AddressManager()
             peer_table_path = config["peer_table_path"]
             if os.path.exists(peer_table_path):
-                await self.address_manager.unserialize(peer_table_path)
+                self.address_manager.unserialize(peer_table_path)
         for c in all_connections:
             if c.connection_type == NodeType.FULL_NODE:
                 self.peers.add(c.get_peer_info())

@@ -653,7 +653,8 @@ class AddressManager:
                             writer.write(str(index) + "\n")
 
     async def unserialize(self, filename):
-        async with self.lock:
+        # async with self.lock:
+        if filename is not None:
             with open(filename, 'r') as reader:
                 self.key = int(reader.readline())
                 self.new_count = int(reader.readline())

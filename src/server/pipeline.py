@@ -377,7 +377,7 @@ async def handle_message(
             if connection.connection_type == NodeType.FULL_NODE:
                 peer_src = connection.get_peername()
                 for peer_bytes in peers:
-                    peer: PeerInfo = PeerInfo.from_bytes(peer_bytes)
+                    peer = PeerInfo.from_bytes(peer_bytes)
                     if (
                         peer.timestamp < 100000000
                         or peer.timestamp > time.time() + 10 * 60
@@ -400,7 +400,7 @@ async def handle_message(
                 return
             elif connection.connection_type == NodeType.INTRODUCER:
                 for peer_bytes in peers:
-                    peer: PeerInfo = PeerInfo.from_bytes(peer_bytes)
+                    peer = PeerInfo.from_bytes(peer_bytes)
                     # Like DNS seeds from Bitcoin, messages from the introducer
                     # should have timestamp=0.
                     if peer.timestamp != 0:
