@@ -5,13 +5,15 @@ import os
 from src.types.peer_info import PeerInfo
 from src.server.address_manager import ExtendedPeerInfo, AddressManager
 
+
 @pytest.fixture(scope="module")
 def event_loop():
     loop = asyncio.get_event_loop()
     yield loop
 
+
 class AddressManagerTest(AddressManager):
-    def __init__(self, make_deterministic = True):
+    def __init__(self, make_deterministic=True):
         super().__init__()
         if make_deterministic:
             self.make_deterministic()
@@ -19,10 +21,11 @@ class AddressManagerTest(AddressManager):
     def make_deterministic(self):
         # Fix seed.
         self.key = 2 ** 256 - 1
-    
+
     async def simulate_connection_fail(self, peer):
         await self.mark_good(peer.peer_info, True, 1)
-        await self.attempt(peer.peer_info, False, time.time()-61)
+        await self.attempt(peer.peer_info, False, time.time() - 61)
+
 
 class TestPeerManager:
     @pytest.mark.asyncio
@@ -84,7 +87,7 @@ class TestPeerManager:
         peer3_ret = await addrman.select_peer(True)
         assert peer3_ret.peer_info == peer1
 
-    # This is a fleaky test, since it uses randomness. 
+    # This is a fleaky test, since it uses randomness.
     # TODO: Make sure it always succeeds.
     @pytest.mark.asyncio
     async def test_addrman_select(self):
@@ -271,11 +274,11 @@ class TestPeerManager:
         assert await addrman.add_to_new_table([peer3], source1)
         assert await addrman.add_to_new_table([peer4], source1)
         assert await addrman.add_to_new_table([peer5], source1)
-        
+
         # GetPeers returns 23% of addresses, 23% of 5 is 1 rounded down.
         peers2 = await addrman.get_peers()
         assert len(peers2) == 1
-    
+
         # Test: Ensure GetPeers works with new and tried addresses.
         await addrman.mark_good(peer1)
         await addrman.mark_good(peer2)
@@ -299,8 +302,6 @@ class TestPeerManager:
 
     @pytest.mark.asyncio
     async def test_addrman_tried_bucket(self):
-        addrman = AddressManagerTest()
-
         peer1 = PeerInfo("250.1.1.1", 8444)
         peer2 = PeerInfo("250.1.1.1", 9999)
         source1 = PeerInfo("250.1.1.1", 8444)
@@ -328,7 +329,7 @@ class TestPeerManager:
             bucket = extended_peer_info.get_tried_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
-        
+
         assert len(buckets) == 8
 
         # Test: IP addresses in the different groups should map to more than
@@ -344,8 +345,6 @@ class TestPeerManager:
 
     @pytest.mark.asyncio
     async def test_addrman_new_bucket(self):
-        addrman = AddressManagerTest()
-
         peer1 = PeerInfo("250.1.2.1", 8444)
         peer2 = PeerInfo("250.1.2.1", 9999)
         source1 = PeerInfo("250.1.2.1", 8444)
@@ -395,7 +394,7 @@ class TestPeerManager:
             bucket = extended_peer_info.get_new_bucket(key1)
             if bucket not in buckets:
                 buckets.append(bucket)
-        
+
         assert len(buckets) > 64
 
     @pytest.mark.asyncio
@@ -415,7 +414,7 @@ class TestPeerManager:
             assert await addrman.size() == i
             collision = await addrman.select_tried_collision()
             assert collision is None
-        
+
         # Ensure Good handles duplicates well.
         for i in range(1, 18):
             peer = PeerInfo("250.1.1." + str(i), 8444)
@@ -461,7 +460,7 @@ class TestPeerManager:
         peer37 = PeerInfo("250.1.1.37", 8444)
         assert await addrman.add_to_new_table([peer37], source)
         await addrman.mark_good(peer37)
-        assert await addrman.size() == 37   
+        assert await addrman.size() == 37
 
         # Cause a second collision.
         assert not await addrman.add_to_new_table([peer18], source)
@@ -473,7 +472,7 @@ class TestPeerManager:
         await addrman.resolve_tried_collisions()
         collision = await addrman.select_tried_collision()
         assert collision is None
-    
+
     @pytest.mark.asyncio
     async def test_addrman_eviction_works(self):
         addrman = AddressManagerTest()
@@ -516,7 +515,6 @@ class TestPeerManager:
         assert collision.peer_info == PeerInfo("250.1.1.18", 8444)
         await addrman.resolve_tried_collisions()
         assert await addrman.select_tried_collision() is None
-
 
     @pytest.mark.asyncio
     async def test_serialization(self):
