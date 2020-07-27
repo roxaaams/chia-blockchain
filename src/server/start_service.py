@@ -84,7 +84,6 @@ def create_periodic_introducer_poll_task(
                 group = peer.get_group()
                 if group not in groups:
                     groups.append(group)
-            count_outbound = global_connections.count_outbound_connections()
 
             # Feeler Connections
             #

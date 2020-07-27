@@ -2,6 +2,7 @@ import logging
 import random
 import time
 import asyncio
+import os
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from src.server.outbound_message import Message, NodeType, OutboundMessage
@@ -10,6 +11,7 @@ from src.types.sized_bytes import bytes32
 from src.util import cbor
 from src.util.ints import uint16, uint64
 from src.server.address_manager import AddressManager
+from src.full_node.full_node import FullNode
 
 # Each message is prepended with LENGTH_BYTES bytes specifying the length
 LENGTH_BYTES: int = 4
@@ -135,7 +137,7 @@ class PeerConnections:
             self.address_manager = AddressManager()
             peer_table_path = config["peer_table_path"]
             if os.path.exists(peer_table_path):
-                await addrman.unserialize(peer_table_path)
+                await self.address_manager.unserialize(peer_table_path)
         for c in all_connections:
             if c.connection_type == NodeType.FULL_NODE:
                 self.peers.add(c.get_peer_info())
@@ -201,39 +203,39 @@ class PeerConnections:
 
     # Functions related to AddressManager calls.
     async def add_potential_peer(self, peer: PeerInfo, peer_source: Optional[PeerInfo], penalty=0):
-        if self.address_manager is None
+        if self.address_manager is None:
             return
         if peer is None or not peer.port:
             return False
         await self.address_manager.add_to_new_table([peer], peer_source, penalty)
 
     async def add_potential_peers(self, peers: List[PeerInfo], peer_source: Optional[PeerInfo], penalty=0):
-        if self.address_manager is None
+        if self.address_manager is None:
             return
         await self.address_manager.add_to_new_table(peers, peer_source, penalty)
 
     async def get_peers(self):
-        if self.address_manager is None
+        if self.address_manager is None:
             return []
         peers = await self.address_manager.get_peers()
         return peers
 
     async def mark_attempted(self, peer_info: Optional[PeerInfo]):
-        if self.address_manager is None
+        if self.address_manager is None:
             return
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.attempt(peer_info, True)
 
     async def update_connection_time(self, peer_info: Optional[PeerInfo]):
-        if self.address_manager is None
+        if self.address_manager is None:
             return
         if peer_info is None or not peer_info.port:
             return
         await self.address_manager.connect(peer_info)
 
     async def mark_good(self, peer_info: Optional[PeerInfo]):
-        if self.address_manager is None
+        if self.address_manager is None:
             return
         if peer_info is None or not peer_info.port:
             return
@@ -241,7 +243,7 @@ class PeerConnections:
         await self.address_manager.mark_good(peer_info, True)
 
     async def size(self):
-        if self.address_manager is None
+        if self.address_manager is None:
             return 0
         return await self.address_manager.size()
 

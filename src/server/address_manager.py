@@ -38,19 +38,21 @@ class ExtendedPeerInfo:
             self.src = peer_info
         self.random_pos: Optional[int] = None
         self.is_tried: bool = False
-        self.ref_count: int = int(0)
-        self.last_success: int = int(0)
-        self.last_try: int = int(0)
+        self.ref_count: int = 0
+        self.last_success: int = 0
+        self.last_try: int = 0
         self.timestamp: int = peer_info.timestamp
-        self.num_attempts: int = int(0)
-        self.last_count_attempt: int = int(0)
+        self.num_attempts: int = 0
+        self.last_count_attempt: int = 0
 
     def to_string(self):
         assert self.src is not None
-        out = self.peer_info.host \
-        + ' ' + str(int(self.peer_info.port)) \
-        + ' ' + self.src.host \
-        + ' ' + str(int(self.src.port))
+        out = (
+            self.peer_info.host
+            + ' ' + str(int(self.peer_info.port))
+            + ' ' + self.src.host
+            + ' ' + str(int(self.src.port))
+        )
         return out
 
     @classmethod

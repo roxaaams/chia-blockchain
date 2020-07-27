@@ -3,6 +3,7 @@ import concurrent
 import logging
 import random
 import ssl
+import traceback
 from typing import Any, AsyncGenerator, List, Optional, Tuple
 
 from aiter import aiter_forker, iter_to_aiter, join_aiters, map_aiter, push_aiter
@@ -391,7 +392,8 @@ async def handle_message(
                         current_peer = peer
                     peers_adjusted_timestamp.append(current_peer)
 
-                asyncio.create_task(global_connections.add_potential_peers(
+                asyncio.create_task(
+                    global_connections.add_potential_peers(
                         peers_adjusted_timestamp, peer_src, 2 * 60 * 60
                     )
                 )
@@ -410,7 +412,8 @@ async def handle_message(
                         current_peer = peer
                     peers_adjusted_timestamp.append(current_peer)
 
-                asyncio.create_task(global_connections.add_potential_peers(
+                asyncio.create_task(
+                    global_connections.add_potential_peers(
                         peers_adjusted_timestamp, None, 2 * 60 * 60
                     )
                 )
