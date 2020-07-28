@@ -351,7 +351,7 @@ async def handle_message(
         if full_message.function == "request_peers":
             # Handle here only full nodes peer gossip, and let
             # the introducer use its own function.
-            if hasattr(api, "periodically_peer_gossip"):
+            if global_connections.local_type == NodeType.FULL_NODE:
                 if global_connections is None:
                     return
                 # Prevent a fingerprint attack.
@@ -368,7 +368,7 @@ async def handle_message(
         elif full_message.function == "respond_peers":
             if global_connections is None:
                 return
-            if not hasattr(api, "periodically_peer_gossip"):
+            if not global_connections.local_type == NodeType.FULL_NODE:
                 return
             peers = full_message.data["peer_list"]
             peers_adjusted_timestamp: List[PeerInfo] = []
