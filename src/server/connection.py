@@ -11,7 +11,6 @@ from src.types.sized_bytes import bytes32
 from src.util import cbor
 from src.util.ints import uint16, uint64
 from src.server.address_manager import AddressManager
-from src.full_node.full_node import FullNode
 
 # Each message is prepended with LENGTH_BYTES bytes specifying the length
 LENGTH_BYTES: int = 4
@@ -127,11 +126,12 @@ class ChiaConnection:
 
 
 class PeerConnections:
-    def __init__(self, api: Any, config: Dict, all_connections: List[ChiaConnection] = []):
+    def __init__(self, local_type: NodeType, config: Dict, all_connections: List[ChiaConnection] = []):
         self._all_connections = all_connections
         # Only full node peers are added to `peers`
         self.peers = Peers()
-        if not isinstance(api, FullNode):
+        self.local_type = local_type
+        if not local_type == NodeType.FULL_NODE:
             self.address_manager = None
         else:
             self.address_manager = AddressManager()
@@ -142,8 +142,8 @@ class PeerConnections:
             if c.connection_type == NodeType.FULL_NODE:
                 self.peers.add(c.get_peer_info())
         self.state_changed_callback: Optional[Callable] = None
-        # Use config instead...
-        if isinstance(api, FullNode):
+
+        if local_type == NodeType.FULL_NODE:
             self.max_inbound_count = config["target_peer_count"] - config["target_outbound_peer_count"]
             self.target_outbound_count = config["target_outbound_peer_count"]
 
@@ -260,6 +260,8 @@ class PeerConnections:
         ]
 
     def accept_inbound_connections(self):
+        if not self.local_type == NodeType.FULL_NODE:
+            return True
         inbound_count = len(
             [
                 conn

@@ -21,7 +21,6 @@ from src.types.sized_bytes import bytes32
 from src.util import partial_func
 from src.util.errors import Err, ProtocolError
 from src.util.ints import uint16
-from src.full_node.full_node import FullNode
 from src.protocols import full_node_protocol
 from src.types.peer_info import PeerInfo
 import time
@@ -352,7 +351,7 @@ async def handle_message(
         if full_message.function == "request_peers":
             # Handle here only full nodes peer gossip, and let
             # the introducer use its own function.
-            if isinstance(api, FullNode):
+            if hasattr(api, "periodically_peer_gossip"):
                 if global_connections is None:
                     return
                 # Prevent a fingerprint attack.
@@ -369,7 +368,7 @@ async def handle_message(
         elif full_message.function == "respond_peers":
             if global_connections is None:
                 return
-            if not isinstance(api, FullNode):
+            if not hasattr(api, "periodically_peer_gossip"):
                 return
             peers = full_message.data["peer_list"]
             peers_adjusted_timestamp: List[PeerInfo] = []
